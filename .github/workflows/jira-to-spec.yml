@@ -1,0 +1,33 @@
+name: Jira to Virtualization Spec
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_key:
+        description: "Jira issue key, example KAN-10"
+        required: true
+        type: string
+
+jobs:
+  fetch-jira:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Fetch Jira issue
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          ISSUE_KEY: ${{ inputs.issue_key }}
+        run: python scripts/fetch_jira_issue.py
