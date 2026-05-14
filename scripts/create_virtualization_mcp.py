@@ -44,7 +44,7 @@ payload = {
 headers = {
     "Authorization": mcp_auth,
     "Content-Type": "application/json",
-    "Accept": "application/json"
+    "Accept": "application/json, text/event-stream"
 }
 
 response = requests.post(
