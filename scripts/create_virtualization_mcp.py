@@ -8,23 +8,26 @@ mcp_auth = os.environ["SOATEST_MCP_AUTH"]
 
 spec_path = f"output/{issue_key}/virtualization-spec.json"
 mcp_payload_path = f"output/{issue_key}/mcp-payload.json"
+mcp_response_path = f"output/{issue_key}/mcp-response.json"
 
 with open(spec_path, "r", encoding="utf-8") as f:
     spec = json.load(f)
 
 case = spec["cases"][0]
 
-request_content = json.dumps(
-    case.get("request", {}),
-    ensure_ascii=False,
-    indent=2
-)
+def content_to_string(value):
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False, indent=2)
 
-response_content = json.dumps(
-    case.get("response", {}),
-    ensure_ascii=False,
-    indent=2
-)
+request_content = content_to_string(case.get("request"))
+response_content = content_to_string(case.get("response"))
+
+if not request_content or request_content == "{}":
+    raise ValueError("requestContent vacío. No se enviará creación al MCP.")
+
+if not response_content or response_content == "{}":
+    raise ValueError("responseContent vacío. No se enviará creación al MCP.")
 
 mcp_arguments = {
     "action": "create",
@@ -45,10 +48,6 @@ headers = {
     "Content-Type": "application/json",
     "Accept": "application/json, text/event-stream"
 }
-
-# =========================
-# MCP INITIALIZE
-# =========================
 
 initialize_payload = {
     "jsonrpc": "2.0",
@@ -72,7 +71,6 @@ init_response = requests.post(
 )
 
 print("INITIALIZE STATUS:", init_response.status_code)
-print("INITIALIZE HEADERS:", dict(init_response.headers))
 print("INITIALIZE RESPONSE:", init_response.text)
 
 init_response.raise_for_status()
@@ -83,10 +81,6 @@ if not session_id:
     raise RuntimeError("MCP session id not returned")
 
 headers["mcp-session-id"] = session_id
-
-# =========================
-# TOOLS CALL
-# =========================
 
 tool_payload = {
     "jsonrpc": "2.0",
@@ -111,6 +105,9 @@ print(json.dumps(mcp_arguments, ensure_ascii=False, indent=2))
 print("TOOLS STATUS:", response.status_code)
 print("TOOLS RESPONSE:", response.text)
 
+with open(mcp_response_path, "w", encoding="utf-8") as f:
+    f.write(response.text)
+
 response.raise_for_status()
 
-print("Virtualization created successfully")
+print("Virtualization create request sent successfully")
