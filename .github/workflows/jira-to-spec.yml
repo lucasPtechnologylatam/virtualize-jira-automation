@@ -39,3 +39,16 @@ jobs:
         env:
           ISSUE_KEY: ${{ github.event.inputs.issue_key || github.event.client_payload.issueKey }}
         run: python scripts/generate_virtualization_spec.py
+
+      - name: Create virtualization in SOAtest MCP
+        env:
+          ISSUE_KEY: ${{ github.event.inputs.issue_key || github.event.client_payload.issueKey }}
+          SOATEST_MCP_URL: ${{ secrets.SOATEST_MCP_URL }}
+          SOATEST_MCP_AUTH: ${{ secrets.SOATEST_MCP_AUTH }}
+        run: python scripts/create_virtualization_mcp.py
+
+      - name: Upload generated artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: virtualization-output
+          path: output/
