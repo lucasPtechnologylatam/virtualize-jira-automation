@@ -1,3 +1,5 @@
+name: Jira to Virtualization Spec
+
 on:
   workflow_dispatch:
     inputs:
@@ -32,3 +34,8 @@ jobs:
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           ISSUE_KEY: ${{ github.event.inputs.issue_key || github.event.client_payload.issueKey }}
         run: python scripts/fetch_jira_issue.py
+
+      - name: Generate virtualization spec
+        env:
+          ISSUE_KEY: ${{ github.event.inputs.issue_key || github.event.client_payload.issueKey }}
+        run: python scripts/generate_virtualization_spec.py
