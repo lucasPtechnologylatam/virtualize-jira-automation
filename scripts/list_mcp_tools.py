@@ -18,9 +18,14 @@ init_payload = {
     "method": "initialize",
     "params": {
         "protocolVersion": "2024-11-05",
-        "capabilities": {},
+        "capabilities": {
+            "roots": {
+                "listChanged": True
+            },
+            "sampling": {}
+        },
         "clientInfo": {
-            "name": "github-actions-runner",
+            "name": "Visual Studio Code",
             "version": "1.0.0"
         }
     }
