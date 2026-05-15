@@ -87,7 +87,7 @@ tool_payload = {
     "id": 1,
     "method": "tools/call",
     "params": {
-        "name": "mcp_soatest_manageVirtualServices",
+        "name": "manageVirtualServices",
         "arguments": mcp_arguments
     }
 }
