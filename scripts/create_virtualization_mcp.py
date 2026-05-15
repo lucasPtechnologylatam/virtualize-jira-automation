@@ -33,7 +33,6 @@ mcp_arguments = {
     "action": "create",
     "name": spec["serviceName"],
     "deployment": spec["virtualPath"],
-    "port": int(spec.get("port", 9080)),
     "requestContent": request_content,
     "responseContent": response_content
 }
