@@ -35,8 +35,8 @@ mcp_arguments = {
     "deployment": spec["virtualPath"],
     "port": 9080,
     "requestContent": request_content,
-    "responseContent": response_content,
-    "instructions": "Use the existing Virtualize HTTP listener on port 9080. Do not create a new listener or fallback to another port. Only create or update the virtual service deployment path."
+    "responseContent": response_content
+    
 }
 
 os.makedirs(f"output/{issue_key}", exist_ok=True)
