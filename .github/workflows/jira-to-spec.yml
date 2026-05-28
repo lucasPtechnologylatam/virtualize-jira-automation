@@ -52,6 +52,16 @@ jobs:
           SOATEST_MCP_URL: ${{ secrets.SOATEST_MCP_URL }}
           SOATEST_MCP_AUTH: ${{ secrets.SOATEST_MCP_AUTH }}
         run: python scripts/create_virtualization_mcp.py
+        
+      - name: Publish documentation to Confluence
+        env:
+          ISSUE_KEY: ${{ github.event.inputs.issue_key || github.event.client_payload.issueKey }}
+          CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
+          CONFLUENCE_USER: ${{ secrets.CONFLUENCE_USER }}
+          CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
+          CONFLUENCE_SPACE: ${{ secrets.CONFLUENCE_SPACE }}
+          CONFLUENCE_PARENT_ID: ${{ secrets.CONFLUENCE_PARENT_ID }}
+        run: python scripts/publish_confluence_doc.py
 
       - name: Upload generated artifacts
         uses: actions/upload-artifact@v4
