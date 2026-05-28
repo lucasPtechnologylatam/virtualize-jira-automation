@@ -52,7 +52,7 @@ jobs:
           SOATEST_MCP_URL: ${{ secrets.SOATEST_MCP_URL }}
           SOATEST_MCP_AUTH: ${{ secrets.SOATEST_MCP_AUTH }}
         run: python scripts/create_virtualization_mcp.py
-        
+
       - name: Publish documentation to Confluence
         env:
           ISSUE_KEY: ${{ github.event.inputs.issue_key || github.event.client_payload.issueKey }}
