@@ -4,7 +4,6 @@ import os
 import json
 import html
 import re
-
 from datetime import datetime
 
 import requests
@@ -14,29 +13,12 @@ import requests
 # VARIABLES CONFLUENCE
 # ============================================================
 
-CONFLUENCE_BASE_URL = os.environ[
-    "CONFLUENCE_BASE_URL"
-].rstrip("/")
-
-CONFLUENCE_USER = os.environ[
-    "CONFLUENCE_USER"
-]
-
-CONFLUENCE_API_TOKEN = os.environ[
-    "CONFLUENCE_API_TOKEN"
-]
-
-CONFLUENCE_SPACE = os.environ[
-    "CONFLUENCE_SPACE"
-]
-
-CONFLUENCE_PARENT_ID = os.environ[
-    "CONFLUENCE_PARENT_ID"
-]
-
-ISSUE_KEY = os.environ[
-    "ISSUE_KEY"
-]
+CONFLUENCE_BASE_URL = os.environ["CONFLUENCE_BASE_URL"].rstrip("/")
+CONFLUENCE_USER = os.environ["CONFLUENCE_USER"]
+CONFLUENCE_API_TOKEN = os.environ["CONFLUENCE_API_TOKEN"]
+CONFLUENCE_SPACE = os.environ["CONFLUENCE_SPACE"]
+CONFLUENCE_PARENT_ID = os.environ["CONFLUENCE_PARENT_ID"]
+ISSUE_KEY = os.environ["ISSUE_KEY"]
 
 
 # ============================================================
@@ -72,7 +54,6 @@ auth = (
 # ============================================================
 
 def esc(value) -> str:
-
     if value is None:
         return ""
 
@@ -83,7 +64,6 @@ def esc(value) -> str:
 
 
 def sanear_cdata(texto: str) -> str:
-
     if texto is None:
         return ""
 
@@ -94,7 +74,6 @@ def sanear_cdata(texto: str) -> str:
 
 
 def content_to_string(value):
-
     if value is None:
         return ""
 
@@ -109,6 +88,17 @@ def content_to_string(value):
 
 
 def normalize_virtual_path(path):
+    """
+    Virtual Path funcional.
+
+    Ejemplo:
+        enrolarUsuarios
+        ->
+        /enrolarUsuarios
+
+    Este valor NO se utiliza para construir la URL
+    del deployment.
+    """
 
     if not path:
         return ""
@@ -122,52 +112,255 @@ def normalize_virtual_path(path):
 
 
 # ============================================================
+# DEPLOYMENT REAL
+# ============================================================
+
+def extract_deployment_name(
+    spec: dict,
+    payload: dict,
+    mcp_response: str
+) -> str:
+    """
+    Obtiene el nombre real del deployment.
+
+    Ejemplo:
+
+        serviceName:
+        RSEnrolamientoUsuarios
+
+    Virtualize puede generar:
+
+        RSEnrolamientoUsuarios
+        RSEnrolamientoUsuarios_2
+        RSEnrolamientoUsuarios_3
+
+    Se busca primero en la respuesta MCP.
+
+    IMPORTANTE:
+    Nunca usamos virtualPath (/enrolarUsuarios)
+    como nombre del deployment.
+    """
+
+    service_name = str(
+        spec.get("serviceName")
+        or payload.get("name")
+        or ""
+    ).strip()
+
+    if not service_name:
+        return ""
+
+    if mcp_response:
+        escaped_service = re.escape(service_name)
+
+        # Busca:
+        #
+        # RSEnrolamientoUsuarios
+        # RSEnrolamientoUsuarios_2
+        # RSEnrolamientoUsuarios_3
+        #
+        pattern = rf"{escaped_service}(?:_\d+)?"
+
+        matches = re.findall(
+            pattern,
+            mcp_response,
+            flags=re.IGNORECASE
+        )
+
+        if matches:
+            # Eliminar duplicados conservando orden
+            unique_matches = []
+
+            for match in matches:
+                if match not in unique_matches:
+                    unique_matches.append(match)
+
+            print(
+                "[INFO] Deployments encontrados "
+                "en respuesta MCP:"
+            )
+
+            for match in unique_matches:
+                print(
+                    f"[INFO]   - {match}"
+                )
+
+            # ------------------------------------------------
+            # PRIORIDAD:
+            #
+            # Preferimos los deployments que contienen sufijo.
+            #
+            # Ej:
+            #
+            # RSEnrolamientoUsuarios_3
+            #
+            # sobre:
+            #
+            # RSEnrolamientoUsuarios
+            #
+            # ------------------------------------------------
+
+            with_suffix = []
+
+            suffix_pattern = re.compile(
+                rf"^{escaped_service}_(\d+)$",
+                re.IGNORECASE
+            )
+
+            for match in unique_matches:
+                suffix_match = suffix_pattern.match(
+                    match
+                )
+
+                if suffix_match:
+                    with_suffix.append(
+                        (
+                            int(
+                                suffix_match.group(1)
+                            ),
+                            match
+                        )
+                    )
+
+            if with_suffix:
+                # Si existen varios:
+                #
+                # _2
+                # _3
+                #
+                # tomamos el número mayor.
+                with_suffix.sort(
+                    key=lambda item: item[0],
+                    reverse=True
+                )
+
+                deployment = with_suffix[0][1]
+
+                print(
+                    "[INFO] Deployment real seleccionado "
+                    f"desde MCP: {deployment}"
+                )
+
+                return deployment
+
+            # Si MCP solamente menciona el nombre base
+            deployment = unique_matches[0]
+
+            print(
+                "[INFO] MCP solamente informó el "
+                f"deployment base: {deployment}"
+            )
+
+            return deployment
+
+    # ========================================================
+    # FALLBACK 1
+    #
+    # Algunos payloads pueden contener explícitamente el
+    # deployment real.
+    # ========================================================
+
+    deployment = payload.get(
+        "realDeployment"
+    )
+
+    if deployment:
+        deployment = str(
+            deployment
+        ).strip().strip("/")
+
+        print(
+            "[INFO] Deployment obtenido desde "
+            f"payload.realDeployment: {deployment}"
+        )
+
+        return deployment
+
+
+    deployment = payload.get(
+        "deploymentName"
+    )
+
+    if deployment:
+        deployment = str(
+            deployment
+        ).strip().strip("/")
+
+        print(
+            "[INFO] Deployment obtenido desde "
+            f"payload.deploymentName: {deployment}"
+        )
+
+        return deployment
+
+
+    # ========================================================
+    # FALLBACK FINAL
+    #
+    # Usamos serviceName.
+    #
+    # IMPORTANTE:
+    # NO usamos payload["deployment"] porque actualmente
+    # puede contener /enrolarUsuarios.
+    # ========================================================
+
+    print(
+        "[WARN] No fue posible detectar un deployment "
+        "con sufijo desde la respuesta MCP."
+    )
+
+    print(
+        "[WARN] Se utilizará serviceName como fallback: "
+        f"{service_name}"
+    )
+
+    return service_name
+
+
+# ============================================================
 # URL VIRTUAL
 # ============================================================
 
 def build_virtual_url(
     spec: dict,
-    payload: dict
+    payload: dict,
+    mcp_response: str
 ) -> str:
     """
-    Construye la URL efectiva del servicio Virtualize.
+    Construye la URL de invocación utilizando el nombre
+    REAL del deployment.
 
-    IMPORTANTE:
-    No utilizamos la URL reportada por el MCP porque actualmente
-    puede responder incorrectamente que el servicio está utilizando
-    9081 aunque realmente haya quedado desplegado en 9080.
+    Ejemplo:
 
-    Fuente de verdad:
+        Deployment:
+        RSEnrolamientoUsuarios_3
 
-        scheme
-        host
-        port enviado al MCP
-        virtualPath
+        URL:
+
+        http://soporte.laboratorytechnologylatam.com:
+        9080/RSEnrolamientoUsuarios_3
     """
 
-    virtual_path = (
-        spec.get("virtualPath")
-        or payload.get("deployment")
-        or ""
+    deployment_name = extract_deployment_name(
+        spec,
+        payload,
+        mcp_response
     )
 
-    virtual_path = normalize_virtual_path(
-        virtual_path
-    )
-
-    if not virtual_path:
+    if not deployment_name:
         return ""
 
-    port = payload.get(
-        "port",
-        VIRTUALIZE_PORT
+    deployment_name = (
+        str(deployment_name)
+        .strip()
+        .strip("/")
     )
 
     return (
         f"{VIRTUALIZE_SCHEME}://"
         f"{VIRTUALIZE_HOST}:"
-        f"{port}"
-        f"{virtual_path}"
+        f"{VIRTUALIZE_PORT}/"
+        f"{deployment_name}"
     )
 
 
@@ -191,18 +384,15 @@ def extract_http_method(
     mcp_response: str
 ) -> str:
     """
-    Intenta obtener correctamente el método HTTP.
+    Obtiene método HTTP.
 
     Prioridad:
 
     1. httpMethod
     2. requestMethod
     3. verb
-    4. method, solamente si realmente contiene GET/POST/etc.
-    5. Respuesta MCP, por ejemplo:
-       POST http://host:9081/path
-
-    No utiliza valores como /enrolarUsuario como método.
+    4. method si realmente contiene POST/GET/etc.
+    5. respuesta MCP
     """
 
     possible_keys = [
@@ -227,16 +417,9 @@ def extract_http_method(
             return method
 
 
-    # --------------------------------------------------------
-    # FALLBACK: buscar el método en la respuesta MCP.
-    #
-    # Ejemplo MCP:
-    #
-    # POST http://soporte...:9081/enrolarUsuarios
-    #
-    # Utilizamos solamente POST.
-    # IGNORAMOS la URL/puerto informado por MCP.
-    # --------------------------------------------------------
+    # ========================================================
+    # BUSCAR EN RESPUESTA MCP
+    # ========================================================
 
     if mcp_response:
 
@@ -253,8 +436,11 @@ def extract_http_method(
         )
 
         if match:
-            return match.group(1).upper()
-
+            return (
+                match
+                .group(1)
+                .upper()
+            )
 
     return "N/A"
 
@@ -306,58 +492,64 @@ def generar_html(
         "%Y-%m-%d %H:%M:%S"
     )
 
-
     service_name = spec.get(
         "serviceName",
         ISSUE_KEY
     )
 
+    # ========================================================
+    # VIRTUAL PATH
+    #
+    # Sigue siendo /enrolarUsuarios.
+    # Solamente es informativo/funcional.
+    # ========================================================
 
     virtual_path = normalize_virtual_path(
         spec.get(
             "virtualPath",
-            payload.get(
-                "deployment",
-                ""
-            )
+            ""
         )
     )
 
+    # ========================================================
+    # DEPLOYMENT
+    # ========================================================
 
-    port = payload.get(
-        "port",
-        VIRTUALIZE_PORT
+    deployment_name = extract_deployment_name(
+        spec,
+        payload,
+        mcp_response
     )
 
+    # ========================================================
+    # URL VIRTUAL REAL
+    # ========================================================
 
     virtual_url = build_virtual_url(
         spec,
-        payload
+        payload,
+        mcp_response
     )
-
 
     method = extract_http_method(
         spec,
         mcp_response
     )
 
-
     cases = spec.get(
         "cases",
         []
     )
 
-
     if not virtual_url:
-
         virtual_url = (
-            "No fue posible construir "
+            "No fue posible determinar "
             "la URL virtual."
         )
 
 
     # ========================================================
-    # ENCABEZADO
+    # HTML
     # ========================================================
 
     html_doc = ""
@@ -386,14 +578,12 @@ def generar_html(
         "<ul>\n"
     )
 
-
     html_doc += (
         f"<li>"
         f"<b>Issue Jira:</b> "
         f"{esc(ISSUE_KEY)}"
         f"</li>\n"
     )
-
 
     html_doc += (
         f"<li>"
@@ -402,7 +592,6 @@ def generar_html(
         f"</li>\n"
     )
 
-
     html_doc += (
         f"<li>"
         f"<b>Virtual Path:</b> "
@@ -410,23 +599,52 @@ def generar_html(
         f"</li>\n"
     )
 
+    # ========================================================
+    # NUEVO:
+    # Mostrar deployment real
+    # ========================================================
+
+    html_doc += (
+        f"<li>"
+        f"<b>Deployment:</b> "
+        f"{esc(deployment_name)}"
+        f"</li>\n"
+    )
 
     html_doc += (
         f"<li>"
         f"<b>Puerto:</b> "
-        f"{esc(port)}"
+        f"{esc(VIRTUALIZE_PORT)}"
         f"</li>\n"
     )
 
 
-    html_doc += (
-        f"<li>"
-        f"<b>URL Virtual:</b> "
-        f"<a href=\"{esc(virtual_url)}\">"
-        f"{esc(virtual_url)}"
-        f"</a>"
-        f"</li>\n"
-    )
+    # ========================================================
+    # URL
+    # ========================================================
+
+    if (
+        virtual_url.startswith("http://")
+        or virtual_url.startswith("https://")
+    ):
+
+        html_doc += (
+            f"<li>"
+            f"<b>URL Virtual:</b> "
+            f'<a href="{esc(virtual_url)}">'
+            f"{esc(virtual_url)}"
+            f"</a>"
+            f"</li>\n"
+        )
+
+    else:
+
+        html_doc += (
+            f"<li>"
+            f"<b>URL Virtual:</b> "
+            f"{esc(virtual_url)}"
+            f"</li>\n"
+        )
 
 
     html_doc += (
@@ -436,14 +654,12 @@ def generar_html(
         f"</li>\n"
     )
 
-
     html_doc += (
         "<li>"
         "<b>Herramienta:</b> "
         "Parasoft SOAtest / Virtualize MCP"
         "</li>\n"
     )
-
 
     html_doc += "</ul>\n"
 
@@ -458,13 +674,11 @@ def generar_html(
         indent=2
     )
 
-
     html_doc += (
         "<h2>"
         "Payload enviado al MCP"
         "</h2>\n"
     )
-
 
     html_doc += code_block(
         "MCP Payload",
@@ -483,7 +697,6 @@ def generar_html(
         "</h2>\n"
     )
 
-
     for idx, case in enumerate(
         cases,
         start=1
@@ -495,14 +708,12 @@ def generar_html(
             or f"CP{idx:02d}"
         )
 
-
         request_content = content_to_string(
             case.get(
                 "request",
                 {}
             )
         )
-
 
         response_content = content_to_string(
             case.get(
@@ -511,20 +722,17 @@ def generar_html(
             )
         )
 
-
         html_doc += (
             f"<h3>"
             f"{esc(case_name)}"
             f"</h3>\n"
         )
 
-
         html_doc += code_block(
             "Request",
             request_content,
             "json"
         )
-
 
         html_doc += code_block(
             "Response",
@@ -543,14 +751,12 @@ def generar_html(
         "</h2>\n"
     )
 
-
     html_doc += code_block(
         "MCP Response",
         mcp_response
         or "Sin respuesta MCP disponible.",
         "json"
     )
-
 
     return html_doc
 
@@ -566,13 +772,11 @@ def buscar_pagina(title: str):
         f"/wiki/rest/api/content"
     )
 
-
     params = {
         "title": title,
         "spaceKey": CONFLUENCE_SPACE,
         "expand": "version"
     }
-
 
     response = requests.get(
         url,
@@ -581,12 +785,10 @@ def buscar_pagina(title: str):
         timeout=120
     )
 
-
     print(
         "SEARCH PAGE STATUS:",
         response.status_code
     )
-
 
     if response.status_code >= 400:
 
@@ -598,19 +800,15 @@ def buscar_pagina(title: str):
             response.text
         )
 
-
     response.raise_for_status()
-
 
     results = response.json().get(
         "results",
         []
     )
 
-
     if results:
         return results[0]
-
 
     return None
 
@@ -629,13 +827,11 @@ def limpiar_restricciones(
         f"{page_id}/restriction"
     )
 
-
     response = requests.delete(
         url,
         auth=auth,
         timeout=120
     )
-
 
     if response.status_code in (
         200,
@@ -658,7 +854,7 @@ def limpiar_restricciones(
 
 
 # ============================================================
-# PUBLICAR EN CONFLUENCE
+# PUBLICAR CONFLUENCE
 # ============================================================
 
 def publicar_confluence(
@@ -670,14 +866,13 @@ def publicar_confluence(
         "Content-Type": "application/json"
     }
 
-
     existing_page = buscar_pagina(
         title
     )
 
 
     # ========================================================
-    # ACTUALIZAR PÁGINA
+    # ACTUALIZAR
     # ========================================================
 
     if existing_page:
@@ -692,13 +887,11 @@ def publicar_confluence(
             ]
         )
 
-
         url = (
             f"{CONFLUENCE_BASE_URL}"
             f"/wiki/rest/api/content/"
             f"{page_id}"
         )
-
 
         data = {
             "id": page_id,
@@ -727,7 +920,6 @@ def publicar_confluence(
             }
         }
 
-
         response = requests.put(
             url,
             auth=auth,
@@ -736,12 +928,10 @@ def publicar_confluence(
             timeout=120
         )
 
-
         print(
             "UPDATE PAGE STATUS:",
             response.status_code
         )
-
 
         if response.status_code >= 400:
 
@@ -753,15 +943,12 @@ def publicar_confluence(
                 response.text
             )
 
-
         response.raise_for_status()
-
 
         print(
             f"[INFO] Página actualizada "
             f"en Confluence: {title}"
         )
-
 
         limpiar_restricciones(
             page_id
@@ -769,7 +956,7 @@ def publicar_confluence(
 
 
     # ========================================================
-    # CREAR PÁGINA
+    # CREAR
     # ========================================================
 
     else:
@@ -779,10 +966,8 @@ def publicar_confluence(
             f"/wiki/rest/api/content"
         )
 
-
         data = {
             "type": "page",
-
             "title": title,
 
             "space": {
@@ -803,7 +988,6 @@ def publicar_confluence(
             }
         }
 
-
         response = requests.post(
             url,
             auth=auth,
@@ -812,12 +996,10 @@ def publicar_confluence(
             timeout=120
         )
 
-
         print(
             "CREATE PAGE STATUS:",
             response.status_code
         )
-
 
         if response.status_code >= 400:
 
@@ -829,20 +1011,16 @@ def publicar_confluence(
                 response.text
             )
 
-
         response.raise_for_status()
-
 
         page_id = response.json()[
             "id"
         ]
 
-
         print(
             f"[INFO] Página creada "
             f"en Confluence: {title}"
         )
-
 
         limpiar_restricciones(
             page_id
@@ -858,7 +1036,6 @@ def main():
     base_output = (
         f"output/{ISSUE_KEY}"
     )
-
 
     spec_path = (
         f"{base_output}/"
@@ -906,7 +1083,7 @@ def main():
 
 
     # ========================================================
-    # LEER SPEC
+    # SPEC
     # ========================================================
 
     with open(
@@ -915,11 +1092,13 @@ def main():
         encoding="utf-8"
     ) as f:
 
-        spec = json.load(f)
+        spec = json.load(
+            f
+        )
 
 
     # ========================================================
-    # LEER PAYLOAD
+    # PAYLOAD
     # ========================================================
 
     with open(
@@ -928,15 +1107,16 @@ def main():
         encoding="utf-8"
     ) as f:
 
-        payload = json.load(f)
+        payload = json.load(
+            f
+        )
 
 
     # ========================================================
-    # LEER RESPUESTA MCP
+    # MCP RESPONSE
     # ========================================================
 
     mcp_response = ""
-
 
     if os.path.exists(
         response_path
@@ -955,18 +1135,35 @@ def main():
         print(
             f"[WARN] No existe "
             f"{response_path}. "
-            f"Se continuará sin "
-            f"respuesta MCP."
+            "Se continuará sin "
+            "respuesta MCP."
         )
 
 
     # ========================================================
-    # DOCUMENTACIÓN
+    # DATOS
     # ========================================================
 
     service_name = spec.get(
         "serviceName",
         ISSUE_KEY
+    )
+
+    deployment_name = extract_deployment_name(
+        spec,
+        payload,
+        mcp_response
+    )
+
+    virtual_url = build_virtual_url(
+        spec,
+        payload,
+        mcp_response
+    )
+
+    method = extract_http_method(
+        spec,
+        mcp_response
     )
 
 
@@ -977,17 +1174,9 @@ def main():
     )
 
 
-    virtual_url = build_virtual_url(
-        spec,
-        payload
-    )
-
-
-    method = extract_http_method(
-        spec,
-        mcp_response
-    )
-
+    # ========================================================
+    # LOG
+    # ========================================================
 
     print(
         "======================================"
@@ -1010,6 +1199,10 @@ def main():
     )
 
     print(
+        f"Deployment:  {deployment_name}"
+    )
+
+    print(
         f"Virtual URL: {virtual_url}"
     )
 
@@ -1017,6 +1210,10 @@ def main():
         f"HTTP Method: {method}"
     )
 
+
+    # ========================================================
+    # HTML
+    # ========================================================
 
     html_doc = generar_html(
         spec,
@@ -1026,14 +1223,13 @@ def main():
 
 
     # ========================================================
-    # GUARDAR HTML LOCAL
+    # GUARDAR HTML
     # ========================================================
 
     os.makedirs(
         base_output,
         exist_ok=True
     )
-
 
     with open(
         html_path,
@@ -1044,7 +1240,6 @@ def main():
         f.write(
             html_doc
         )
-
 
     print(
         f"[INFO] HTML generado "
